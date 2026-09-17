@@ -610,7 +610,7 @@
       try {
         let formats;
         try { formats = await window.BarcodeDetector.getSupportedFormats(); } catch (e) { formats = null; }
-        const wanted = ['code_128', 'code_39', 'ean_13', 'ean_8', 'upc_a', 'upc_e'];
+        const wanted = ['code_128', 'code_39'];
         const useFormats = formats ? wanted.filter(f => formats.includes(f)) : wanted;
         const detector = new window.BarcodeDetector(useFormats.length ? { formats: useFormats } : undefined);
         scannerStatus.textContent = 'Inquadra il codice a barre della matricola.';
@@ -641,7 +641,7 @@
           target: viewport,
           constraints: { facingMode: 'environment' }
         },
-        decoder: { readers: ['code_128_reader', 'ean_reader', 'code_39_reader'] },
+        decoder: { readers: ['code_128_reader', 'code_39_reader'] },
         locate: true
       }, function (err) {
         if (err) {
