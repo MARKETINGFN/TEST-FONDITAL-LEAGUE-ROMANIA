@@ -181,21 +181,30 @@
   .tp-scanner-header button { background: none; border: none; color: #fff; font-size: 16px; cursor: pointer; }
   .tp-scanner-viewport { position: relative; width: 100%; height: 260px; background: #000; overflow: hidden; }
   .tp-scanner-viewport video, .tp-scanner-viewport canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; }
-  .tp-scanner-hint { font-size: 12.5px; color: var(--ink-soft); padding: 12px 18px 18px; margin: 0; }
+  .tp-scanner-guide {
+    position: absolute; left: 8%; right: 8%; top: 55%; height: 22%; transform: translateY(-50%);
+    border: 2px dashed rgba(255,255,255,0.85); border-radius: 3px; pointer-events: none;
+    box-shadow: 0 0 0 2000px rgba(0,0,0,0.25);
+  }
+  .tp-scanner-actions { padding: 14px 18px 0; }
+  .tp-scanner-actions .tp-btn { width: 100%; }
+  .tp-scanner-hint { font-size: 12.5px; color: var(--ink-soft); padding: 10px 18px 18px; margin: 0; }
 </style>
 
 <div id="tp-root">
   <div class="tp-shell" id="tp-shell">Caricamento…</div>
   <div class="tp-scanner-overlay" id="scannerOverlay">
     <div class="tp-scanner-box">
-      <div class="tp-scanner-header"><span>Scansiona codice a barre</span><button data-action="closeScanner">&#10005;</button></div>
-      <div class="tp-scanner-viewport" id="scannerViewport"></div>
-      <p class="tp-scanner-hint" id="scannerStatus">Inquadra il codice a barre della matricola con la fotocamera.</p>
+      <div class="tp-scanner-header"><span>Scansiona o fotografa la matricola</span><button data-action="closeScanner">&#10005;</button></div>
+      <div class="tp-scanner-viewport" id="scannerViewport"><div class="tp-scanner-guide"></div></div>
+      <div class="tp-scanner-actions"><button class="tp-btn secondary" data-action="captureAndRead" id="captureBtn">Cattura e leggi il testo stampato</button></div>
+      <p class="tp-scanner-hint" id="scannerStatus">Inquadra il codice a barre, oppure allinea il testo stampato nel riquadro e tocca "Cattura".</p>
     </div>
   </div>
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/quagga/0.12.1/quagga.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/tesseract.js/5.0.2/tesseract.min.js"></script>
 <script>
 (function () {
   const root = document.getElementById('tp-root');
@@ -498,6 +507,7 @@
     else if (action === 'rifiutaRichiesta') { const r = DB.richieste.find(x => x.id === ds.id); r.stato = 'rifiutata'; persist(); render(); }
     else if (action === 'openScanner') openScanner();
     else if (action === 'closeScanner') closeScanner();
+    else if (action === 'captureAndRead') captureAndRead();
   }
 
   function doInstallerLogin() {
@@ -566,11 +576,13 @@
   let currentStream = null;
   let scanInterval = null;
   let quaggaActive = false;
+  let activeVideoEl = null;
 
   async function openScanner() {
     scannerOverlay.style.display = 'flex';
     const viewport = document.getElementById('scannerViewport');
-    viewport.innerHTML = '';
+    viewport.querySelectorAll('video').forEach(function (v) { v.remove(); });
+    activeVideoEl = null;
 
     if (!window.isSecureContext) {
       scannerStatus.textContent = 'Questa pagina non è aperta con una connessione sicura (https). La fotocamera resta bloccata dal browser: verifica che l\'indirizzo inizi con https:// e mostri il lucchetto.';
@@ -602,8 +614,9 @@
     video.setAttribute('autoplay', 'true');
     video.muted = true;
     video.srcObject = stream;
-    viewport.appendChild(video);
+    viewport.insertBefore(video, viewport.firstChild);
     try { await video.play(); } catch (e) {}
+    activeVideoEl = video;
 
     // Percorso 1: API nativa del browser (più affidabile dove supportata)
     if ('BarcodeDetector' in window) {
@@ -613,7 +626,7 @@
         const wanted = ['code_128', 'code_39'];
         const useFormats = formats ? wanted.filter(f => formats.includes(f)) : wanted;
         const detector = new window.BarcodeDetector(useFormats.length ? { formats: useFormats } : undefined);
-        scannerStatus.textContent = 'Inquadra il codice a barre della matricola.';
+        scannerStatus.textContent = 'Inquadra il codice a barre, oppure allinea il testo nel riquadro e tocca "Cattura".';
         scanInterval = setInterval(async function () {
           try {
             const codes = await detector.detect(video);
@@ -628,12 +641,12 @@
 
     // Percorso 2: fallback con libreria Quagga
     if (typeof Quagga === 'undefined') {
-      scannerStatus.textContent = 'Scanner non disponibile su questo browser. Inserisci la matricola manualmente.';
-      stopCameraStream();
+      scannerStatus.textContent = 'Scanner a barre non disponibile: usa il pulsante "Cattura" per leggere il testo stampato.';
       return;
     }
     stopCameraStream();
-    viewport.innerHTML = '';
+    activeVideoEl = null;
+    viewport.querySelectorAll('video').forEach(function (v) { v.remove(); });
     try {
       Quagga.init({
         inputStream: {
@@ -651,14 +664,14 @@
         }
         Quagga.start();
         quaggaActive = true;
-        scannerStatus.textContent = 'Inquadra il codice a barre della matricola.';
+        scannerStatus.textContent = 'Inquadra il codice a barre, oppure allinea il testo nel riquadro e tocca "Cattura".';
         const v = viewport.querySelector('video');
-        if (v) { v.setAttribute('playsinline', 'true'); v.muted = true; }
+        if (v) { v.setAttribute('playsinline', 'true'); v.muted = true; activeVideoEl = v; }
       });
       Quagga.onDetected(function (result) { onBarcodeDetected(result.codeResult.code); });
     } catch (e) {
       console.error('Eccezione scanner:', e);
-      scannerStatus.textContent = 'Scanner non supportato in questo browser. Inserisci la matricola manualmente.';
+      scannerStatus.textContent = 'Scanner a barre non supportato: usa il pulsante "Cattura" per leggere il testo stampato.';
     }
   }
 
@@ -672,6 +685,59 @@
     if (input) input.value = matricola;
   }
 
+  function knownPrefixes() {
+    return DB.modelli.map(function (m) { return m.prefix; });
+  }
+
+  function pickBestCandidate(rawText) {
+    const tokens = rawText.toUpperCase().split(/[^A-Z0-9]+/).filter(function (t) { return t.length >= 8; });
+    const prefixes = knownPrefixes();
+    const withKnownPrefix = tokens.find(function (t) { return prefixes.indexOf(t.slice(0, 10)) !== -1; });
+    if (withKnownPrefix) return withKnownPrefix;
+    if (!tokens.length) return null;
+    return tokens.reduce(function (a, b) { return b.length > a.length ? b : a; });
+  }
+
+  async function captureAndRead() {
+    if (!activeVideoEl || !activeVideoEl.videoWidth) {
+      scannerStatus.textContent = 'Fotocamera non ancora pronta, attendi un istante e riprova.';
+      return;
+    }
+    if (typeof Tesseract === 'undefined') {
+      scannerStatus.textContent = 'Il lettore di testo non è disponibile in questo momento. Inserisci la matricola manualmente.';
+      return;
+    }
+    const btn = document.getElementById('captureBtn');
+    if (btn) btn.disabled = true;
+    scannerStatus.textContent = 'Analisi del testo in corso…';
+    try {
+      const canvas = document.createElement('canvas');
+      canvas.width = activeVideoEl.videoWidth;
+      canvas.height = activeVideoEl.videoHeight;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(activeVideoEl, 0, 0, canvas.width, canvas.height);
+      const result = await Tesseract.recognize(canvas, 'eng', {
+        tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 \n'
+      });
+      const text = (result && result.data && result.data.text) || '';
+      const candidate = pickBestCandidate(text);
+      if (!candidate) {
+        scannerStatus.textContent = 'Non sono riuscito a leggere un codice valido: avvicina la fotocamera e riprova, oppure inserisci la matricola manualmente.';
+        if (btn) btn.disabled = false;
+        return;
+      }
+      closeScanner();
+      lastResult = verificaMatricola(candidate, session.installerId);
+      render();
+      const input = document.getElementById('matricolaInput');
+      if (input) input.value = candidate;
+    } catch (e) {
+      console.error('Errore OCR:', e);
+      scannerStatus.textContent = 'Errore nella lettura del testo. Inserisci la matricola manualmente.';
+      if (btn) btn.disabled = false;
+    }
+  }
+
   function stopCameraStream() {
     if (currentStream) { currentStream.getTracks().forEach(function (t) { t.stop(); }); currentStream = null; }
     if (scanInterval) { clearInterval(scanInterval); scanInterval = null; }
@@ -680,8 +746,11 @@
   function closeScanner() {
     stopCameraStream();
     if (quaggaActive) { try { Quagga.offDetected(); Quagga.stop(); } catch (e) {} quaggaActive = false; }
+    activeVideoEl = null;
     scannerOverlay.style.display = 'none';
-    document.getElementById('scannerViewport').innerHTML = '';
+    document.getElementById('scannerViewport').querySelectorAll('video').forEach(function (v) { v.remove(); });
+    const btn = document.getElementById('captureBtn');
+    if (btn) btn.disabled = false;
   }
 
   scannerOverlay.addEventListener('click', function (e) {
