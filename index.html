@@ -664,9 +664,12 @@
 
   function onBarcodeDetected(code) {
     if (!code) return;
-    const input = document.getElementById('matricolaInput');
-    if (input) input.value = code.toUpperCase();
     closeScanner();
+    const matricola = code.toUpperCase();
+    lastResult = verificaMatricola(matricola, session.installerId);
+    render();
+    const input = document.getElementById('matricolaInput');
+    if (input) input.value = matricola;
   }
 
   function stopCameraStream() {
